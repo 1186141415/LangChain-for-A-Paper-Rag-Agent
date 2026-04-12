@@ -6,8 +6,9 @@ from app.data_loader import load_pdfs, process_documents
 from app.rag_system import RAGSystem
 from app.tools import TOOLS
 from app.session_manager import SessionManager
-from app.graph.builder import build_agent_graph
 from app.logger_config import setup_logger
+
+from app.graph.workflow import AgentWorkflow
 
 logger = setup_logger()
 
@@ -16,7 +17,7 @@ app = FastAPI()
 session_manager = SessionManager(max_turns=3)
 
 rag = None
-graph = None
+workflow = None
 
 
 class QueryRequest(BaseModel):
@@ -26,7 +27,7 @@ class QueryRequest(BaseModel):
 
 @app.on_event("startup")
 def startup_event():
-    global rag, graph
+    global rag, workflow
 
     logger.info("Loading RAG system...")
 
@@ -39,7 +40,7 @@ def startup_event():
     rag = RAGSystem(chunks)
     rag.build_index()
 
-    graph = build_agent_graph(TOOLS, rag=rag) # 初始化Graph
+    workflow = AgentWorkflow(TOOLS, rag=rag)
 
     logger.info("RAG + LangGraph ready!")
 
@@ -49,14 +50,11 @@ def ask_question(req: QueryRequest):
     try:
         history = session_manager.get_history(req.session_id)
 
-        state = {
-            "session_id": req.session_id,
-            "query": req.question,
-            "chat_history": history,
-        }
-
-        result = graph.invoke(state)
-        answer = result["final_answer"]
+        answer = workflow.invoke(
+            session_id=req.session_id,
+            query=req.question,
+            chat_history=history
+        )
 
         session_manager.append_turn(
             req.session_id,
