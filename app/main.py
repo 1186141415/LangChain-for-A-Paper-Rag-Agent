@@ -40,7 +40,7 @@ def startup_event():
     rag = RAGSystem(chunks)
     rag.build_index()
 
-    workflow = AgentWorkflow(TOOLS, rag=rag)
+    workflow = AgentWorkflow(TOOLS, rag=rag) # 初始化编排层
 
     logger.info("RAG + LangGraph ready!")
 
