@@ -7,6 +7,92 @@
 
 ---
 
+```mermaid
+flowchart TD
+    A[User or Client] --> B[FastAPI API main.py]
+
+    subgraph API_Layer[接口层]
+        B --> B1[POST ask]
+        B --> B2[POST clear session]
+    end
+
+    subgraph Session_Layer[会话管理层]
+        B1 --> C[SessionManager session_manager.py]
+        C --> C1[Get history by session_id]
+        B1 --> C2[Append turn]
+        B2 --> C3[Clear session]
+    end
+
+    subgraph Workflow_Layer[编排层]
+        B1 --> D[AgentWorkflow invoke workflow.py]
+        D --> E[Build AgentState]
+        E --> F[LangGraph StateGraph builder.py]
+
+        F --> G[choose_tool node]
+        G --> H[decision tool and input]
+
+        H --> I[execute_tool node]
+        I --> J{tool name}
+
+        J -->|rag| K[RAG tool]
+        J -->|llm| L[LLM tool]
+        J -->|calculator| M[Calculator tool]
+        J -->|time| N[Time tool]
+
+        K --> O[generate_answer node]
+        L --> O
+        M --> O
+        N --> O
+
+        O --> P[final_answer]
+    end
+
+    subgraph Tool_Layer[能力层]
+        K --> K1[rag ask with chat history]
+        L --> L1[general LLM answer]
+        M --> M1[evaluate expression]
+        N --> N1[get current time]
+    end
+
+    subgraph RAG_Layer[RAG 检索层]
+        K1 --> R1[retrieve]
+        R1 --> R2[FAISS index]
+        R1 --> R3[query embedding]
+        R2 --> R4[top k chunks]
+        R4 --> R5[rerank]
+        R5 --> R6[build context with source]
+        R6 --> R7[LLM generate answer]
+    end
+
+    subgraph Data_Layer[数据处理层]
+        S[data pdf files] --> T[load_pdfs data_loader.py]
+        T --> U[clean_text]
+        U --> V[split_text and process_documents]
+        V --> W[chunks]
+        W --> X[build_index]
+    end
+
+    subgraph Infra_Layer[基础设施层]
+        Y[config.py]
+        Z[llm_utils.py]
+        AA[logger_config.py]
+    end
+
+    X --> R2
+    Y --> B
+    Y --> Z
+    Z --> G
+    Z --> K1
+    Z --> L1
+    AA --> B
+    AA --> G
+    AA --> I
+    AA --> O
+
+    P --> C2
+    C2 --> Q[Return JSON response]
+```
+
 ## 1. Project Overview
 
 在科研和论文写作过程中，研究者往往需要频繁查找、理解和回溯大量参考文献。  
