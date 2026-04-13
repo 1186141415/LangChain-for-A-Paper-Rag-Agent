@@ -89,8 +89,10 @@ flowchart TD
     P --> C2
     C2 --> Q[Return JSON response]
 ```
+
 该系统采用“接口层 + 会话管理层 + LangGraph 编排层 + 工具层 + RAG 检索层 + 数据处理层”的结构。
 用户请求首先通过 FastAPI 进入系统，结合 session_id 获取历史对话后，交由 LangGraph 编排层处理。编排层基于状态对象 AgentState 串联 choose_tool、execute_tool 和 generate_answer 三个节点，实现工具选择、工具执行和结果汇总。对于文档类问题，系统会进一步调用 RAG 模块完成向量检索、重排序和基于上下文的回答生成；对于通用问题，则调用 LLM 或其他工具完成响应。整个系统支持多轮对话、工具扩展和后续更复杂 Agent 工作流的继续演进。
+
 ---
 
 
