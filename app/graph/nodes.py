@@ -9,7 +9,48 @@ from app.logger_config import setup_logger
 logger = setup_logger()
 
 
+def clean_json_text(text: str) -> str:
+    text = text.strip()
+
+    if text.startswith("```json"):
+        text = text.removeprefix("```json").strip()
+    elif text.startswith("```"):
+        text = text.removeprefix("```").strip()
+
+    if text.endswith("```"):
+        text = text.removesuffix("```").strip()
+
+    return text
+
+
+def normalize_decision(decision: dict, query: str, valid_tool_names: set[str]) -> dict:
+    if not isinstance(decision, dict):
+        return {"tool": "llm", "input": query}
+
+    tool = str(decision.get("tool", "")).strip().lower()
+    tool_input = str(decision.get("input", "")).strip()
+
+    if tool not in valid_tool_names:
+        return {"tool": "llm", "input": query}
+
+    # 关键规则：
+    # 对 rag / llm / time 这三类，默认都把原始 query 继续传下去，
+    # 不允许 router 自己现编一个答案塞进 input。
+    if tool in {"rag", "llm", "time"}:
+        return {"tool": tool, "input": query}
+
+    # calculator 允许保留模型抽出来的表达式
+    if tool == "calculator":
+        if not tool_input:
+            return {"tool": "calculator", "input": query}
+        return {"tool": "calculator", "input": tool_input}
+
+    return {"tool": "llm", "input": query}
+
+
 def build_choose_tool_node(tools: list[dict[str, Any]]):
+    valid_tool_names = {t["name"] for t in tools}
+
     def choose_tool_node(state: AgentState) -> AgentState:
         query = state["query"]
         logger.info(f"[choose_tool_node] query: {query}")
@@ -19,16 +60,30 @@ def build_choose_tool_node(tools: list[dict[str, Any]]):
         ])
 
         prompt = f"""
-                    You are an AI agent.
+                    You are a tool router.
+                    
+                    Your job is ONLY to choose the best tool and prepare its input.
+                    Do NOT answer the user's question.
+                    Do NOT rewrite the user's question into an answer.
+                    Return JSON only.
                     
                     Available tools:
                     {tool_desc}
                     
+                    Rules:
+                    1. You must return exactly one JSON object.
+                    2. JSON format:
+                    {{"tool": "...", "input": "..."}}
+                    3. tool must be one of: rag, calculator, time, llm
+                    4. For rag, llm, and time:
+                       - input should stay the same as the user's original question
+                       - do not invent a new sentence
+                    5. For calculator:
+                       - input should be the math expression only if you can extract it
+                    6. Do not include markdown, explanations, or code fences.
+                    
                     User question:
                     {query}
-                    
-                    Return JSON:
-                    {{"tool": "...", "input": "..."}}
                   """
 
         content = ""
@@ -38,9 +93,13 @@ def build_choose_tool_node(tools: list[dict[str, Any]]):
                 messages=[{"role": "user", "content": prompt}]
             )
             content = response.choices[0].message.content
-            decision = json.loads(content)
 
-            logger.info(f"[choose_tool_node] decision: {decision}")
+            cleaned = clean_json_text(content)
+            raw_decision = json.loads(cleaned)
+            decision = normalize_decision(raw_decision, query, valid_tool_names)
+
+            logger.info(f"[choose_tool_node] raw decision: {raw_decision}")
+            logger.info(f"[choose_tool_node] normalized decision: {decision}")
 
             return {
                 "decision": decision

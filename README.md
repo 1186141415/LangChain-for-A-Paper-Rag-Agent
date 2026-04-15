@@ -214,27 +214,33 @@ flowchart TD
 当前项目更贴近下面这种结构：
 
 ```text
-project-root/
-├── app/
-│   ├── config.py
-│   ├── data_loader.py
-│   ├── llm_utils.py
-│   ├── logger_config.py
-│   ├── rag_system.py
-│   ├── session_manager.py
-│   ├── tools.py
-│   ├── main.py
-│   └── graph/
-│       ├── builder.py
-│       ├── nodes.py
-│       ├── state.py
-│       └── workflow.py
-├── data/
-│   └── *.pdf
-├── requirements.txt
-├── README.md
-├── .env
-└── .gitignore
+Paper-RAG-Agent-with-LangGraph/
+├─ app/                    # 主业务代码
+│  ├─ main.py              # FastAPI 入口
+│  ├─ config.py            # 配置项
+│  ├─ data_loader.py       # PDF 加载与文本切分
+│  ├─ llm_utils.py         # 大模型 / embedding 调用封装
+│  ├─ logger_config.py     # 日志配置
+│  ├─ rag_system.py        # RAG 核心逻辑
+│  ├─ session_manager.py   # 多轮会话管理
+│  ├─ tools.py             # 工具定义
+│  ├─ __init__.py
+│  ├─ graph/               # LangGraph 工作流编排
+│  │  ├─ builder.py        # 构建图
+│  │  ├─ nodes.py          # 节点逻辑
+│  │  ├─ state.py          # 状态定义
+│  │  ├─ workflow.py       # 对图调用再封装一层
+│  │  └─ __init__.py
+│  └─ __pycache__/         # Python 缓存，可忽略
+├─ data/                   # 原始知识库数据
+│  ├─ Paper1.pdf
+│  └─ Paper2.pdf
+├─ tests/                  # 冒烟测试 / 功能验证脚本
+│  ├─ smoke_test_graph.py
+│  ├─ smoke_test_nodes.py
+│  └─ smoke_test_state.py
+├─ requirements.txt        # 依赖列表
+└─ README.md               # 项目说明
 ```
 
 其中：
@@ -369,8 +375,8 @@ LLM Answer
 ### 12.1 Clone the Repository
 
 ```bash
-git https://github.com/1186141415/LangChain-for-A-Paper-Rag-Agent.git
-cd LangChain-for-A-Paper-Rag-Agent
+git clone https://github.com/1186141415/Paper-RAG-Agent-with-LangGraph.git
+cd Paper-RAG-Agent-with-LangGraph
 ```
 
 ### 12.2 Create Virtual Environment
@@ -438,8 +444,83 @@ http://127.0.0.1:8000/docs
 查看自动生成的接口文档。
 
 ---
+## 13. Startup Self-Check
 
-## 13. Example Use Cases
+启动服务后，可以按下面顺序做最小自检：
+
+### 13.1 打开接口文档
+
+访问：
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+如果能正常打开，说明 FastAPI 服务已成功启动。
+
+### 13.2 测试时间工具
+
+向 `/ask` 发送请求：
+
+```json
+{
+  "session_id": "smoke-time",
+  "question": "What time is it now?"
+}
+```
+
+预期现象：
+
+- 接口返回 200
+- `answer` 中包含当前时间
+- 日志中可看到 `choose_tool_node -> execute_tool_node -> generate_answer_node`
+
+### 13.3 测试计算工具
+
+```json
+{
+  "session_id": "smoke-calc",
+  "question": "Calculate 123 * 45"
+}
+```
+
+预期返回结果应包含：
+
+```text
+5535
+```
+
+### 13.4 测试普通 LLM 路由
+
+```json
+{
+  "session_id": "smoke-llm",
+  "question": "Write one sentence to encourage me."
+}
+```
+
+预期现象：
+
+- 路由到 `llm`
+- `input` 保持原问题，而不是被 router 提前改写成答案
+
+### 13.5 测试 RAG 问答
+
+```json
+{
+  "session_id": "smoke-rag",
+  "question": "What is the difference between paper1 and paper2?"
+}
+```
+
+预期现象：
+
+- 路由到 `rag`
+- 系统完成 embedding、检索、生成回答
+- 日志中可看到 RAG 相关调用链路
+
+---
+## 14. Example Use Cases
 
 典型问题示例：
 
@@ -477,7 +558,7 @@ What time is it now?
 
 ---
 
-## 14. Current Engineering Value
+## 15. Current Engineering Value
 
 这个项目当前想体现的，不是“会调用一个大模型 API”，而是：
 
@@ -492,7 +573,7 @@ What time is it now?
 
 ---
 
-## 15. Future Work
+## 16. Future Work
 
 后续计划可以继续扩展的方向包括：
 
@@ -508,7 +589,7 @@ What time is it now?
 
 ---
 
-## 16. Notes
+## 17. Notes
 
 - 当前版本强调的是 **工程化闭环**，而不是一次性做完所有能力
 - README 内容以当前真实实现为准，后续随着功能扩展会持续更新
@@ -516,6 +597,6 @@ What time is it now?
 
 ---
 
-## 17. License
+## 18. License
 
 This project is for learning, experimentation, and engineering practice.
