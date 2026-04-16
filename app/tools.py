@@ -1,6 +1,7 @@
 # tools.py
 
 from app.rag_system import RAGSystem
+from app.mcp_tools import web_search_tool
 from datetime import datetime
 from app.llm_utils import client
 
@@ -57,6 +58,11 @@ TOOLS = [
         "name": "time",
         "description": "Get current time",
         "func": time_tool
+    },
+    {
+        "name": "web_search",
+        "description": "Use for external web search when local documents are not enough or when real-time web information is needed",
+        "func": web_search_tool
     },
     {
         "name": "llm",

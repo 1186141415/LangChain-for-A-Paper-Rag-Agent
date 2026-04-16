@@ -9,6 +9,30 @@ from app.logger_config import setup_logger
 logger = setup_logger()
 
 
+# 保守兜底规则 路由可能会返回不准，这里加一些关于用论文rag和网络搜索硬约束
+def maybe_force_web_search(query: str, decision: dict) -> dict:
+    q = query.lower()
+
+    web_keywords = [
+        "latest", "recent", "current", "today", "news",
+        "web", "online", "internet", "search the web",
+        "最新", "最近", "当前", "今天", "联网", "网上", "搜索一下"
+    ]
+
+    local_doc_keywords = [
+        "paper1", "paper2", "this paper", "the paper",
+        "pdf", "document", "论文", "文档"
+    ]
+
+    has_web_signal = any(k in q for k in web_keywords)
+    looks_like_local_doc = any(k in q for k in local_doc_keywords)
+
+    if has_web_signal and looks_like_local_doc:
+        return {"tool": "web_search", "input": query}
+
+    return decision
+
+
 def clean_json_text(text: str) -> str:
     text = text.strip()
 
@@ -36,7 +60,8 @@ def normalize_decision(decision: dict, query: str, valid_tool_names: set[str]) -
     # 关键规则：
     # 对 rag / llm / time 这三类，默认都把原始 query 继续传下去，
     # 不允许 router 自己现编一个答案塞进 input。
-    if tool in {"rag", "llm", "time"}:
+    # 对 rag / llm / time / web_search，都统一保留原始 query
+    if tool in {"rag", "llm", "time", "web_search"}:
         return {"tool": tool, "input": query}
 
     # calculator 允许保留模型抽出来的表达式
@@ -61,27 +86,34 @@ def build_choose_tool_node(tools: list[dict[str, Any]]):
 
         prompt = f"""
                     You are a tool router.
-                    
+            
                     Your job is ONLY to choose the best tool and prepare its input.
                     Do NOT answer the user's question.
                     Do NOT rewrite the user's question into an answer.
                     Return JSON only.
-                    
+            
                     Available tools:
                     {tool_desc}
-                    
+            
+                    Tool selection guidance:
+                    - Use rag for questions about the loaded local papers/documents, such as paper1, paper2, this paper, the PDF, or document-based comparison/analysis.
+                    - Use calculator for clear math calculations.
+                    - Use time for current time questions.
+                    - Use web_search for questions that explicitly need web information, latest information, recent updates, current events, online search, or information likely not contained in the local PDFs.
+                    - Use llm for general questions that do not need document retrieval, calculation, time, or web search.
+            
                     Rules:
                     1. You must return exactly one JSON object.
                     2. JSON format:
                     {{"tool": "...", "input": "..."}}
-                    3. tool must be one of: rag, calculator, time, llm
-                    4. For rag, llm, and time:
+                    3. tool must be one of: rag, calculator, time, web_search, llm
+                    4. For rag, llm, time, and web_search:
                        - input should stay the same as the user's original question
                        - do not invent a new sentence
                     5. For calculator:
                        - input should be the math expression only if you can extract it
                     6. Do not include markdown, explanations, or code fences.
-                    
+            
                     User question:
                     {query}
                   """
@@ -97,6 +129,7 @@ def build_choose_tool_node(tools: list[dict[str, Any]]):
             cleaned = clean_json_text(content)
             raw_decision = json.loads(cleaned)
             decision = normalize_decision(raw_decision, query, valid_tool_names)
+            decision = maybe_force_web_search(query, decision)
 
             logger.info(f"[choose_tool_node] raw decision: {raw_decision}")
             logger.info(f"[choose_tool_node] normalized decision: {decision}")
