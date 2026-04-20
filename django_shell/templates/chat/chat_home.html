@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>Paper RAG Agent</title>
+</head>
+<body>
+    <h1>Paper RAG Agent with Django Shell</h1>
+
+    <form method="post">
+        {% csrf_token %}
+        <div>
+            <label>Session ID:</label>
+            <input type="text" name="session_id" value="demo-session">
+        </div>
+        <div>
+            <label>Question:</label>
+            <textarea name="question" rows="6" cols="80"></textarea>
+        </div>
+        <button type="submit">Ask</button>
+    </form>
+
+    {% if error %}
+        <hr>
+        <h3>Error</h3>
+        <p>{{ error }}</p>
+    {% endif %}
+
+    {% if result %}
+        <hr>
+        <h3>Result</h3>
+        <p><strong>Session:</strong> {{ result.session_id }}</p>
+        <p><strong>Question:</strong> {{ result.question }}</p>
+        <p><strong>Answer:</strong> {{ result.answer }}</p>
+    {% endif %}
+</body>
+</html>

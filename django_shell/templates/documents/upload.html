@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>Upload Papers</title>
+</head>
+<body>
+    <h1>Upload Papers</h1>
+    <p>这里先做最小上传页面占位，下一步再接文件保存和知识库重建。</p>
+
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        <input type="file" name="paper_file">
+        <button type="submit">Upload</button>
+    </form>
+</body>
+</html>
