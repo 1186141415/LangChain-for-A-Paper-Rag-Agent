@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>Session Detail</title>
+</head>
+<body>
+    <h1>Session Detail</h1>
+
+    <p><strong>Session ID:</strong> {{ session_obj.session_id }}</p>
+    <p><strong>Title:</strong> {{ session_obj.title }}</p>
+
+    <p>
+        <a href="{% url 'chat_home' %}">← Back to Chat</a> |
+        <a href="{% url 'session_list' %}">View All Sessions</a>
+    </p>
+
+    <hr>
+
+    {% for msg in messages %}
+        <div style="margin-bottom: 16px;">
+            <p><strong>{{ msg.role }}:</strong></p>
+            <p>{{ msg.content }}</p>
+            <p style="color: gray;">{{ msg.created_at }}</p>
+        </div>
+        <hr>
+    {% empty %}
+        <p>这个会话还没有消息。</p>
+    {% endfor %}
+</body>
+</html>

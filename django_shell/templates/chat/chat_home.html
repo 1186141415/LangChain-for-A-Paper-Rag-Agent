@@ -6,6 +6,10 @@
 </head>
 <body>
     <h1>Paper RAG Agent with Django Shell</h1>
+    <p>
+        <a href="{% url 'session_list' %}">View Session History</a> |
+        <a href="{% url 'upload_page' %}">Upload Papers</a>
+    </p>
 
     <form method="post">
         {% csrf_token %}

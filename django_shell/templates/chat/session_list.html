@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>Session List</title>
+</head>
+<body>
+    <h1>Session List</h1>
+    <p><a href="{% url 'chat_home' %}">← Back to Chat</a></p>
+
+    <ul>
+        {% for session in sessions %}
+            <li>
+                <a href="{% url 'session_detail' session.session_id %}">
+                    {{ session.title|default:session.session_id }}
+                </a>
+                ({{ session.session_id }}) - {{ session.updated_at }}
+            </li>
+        {% empty %}
+            <li>暂无历史会话</li>
+        {% endfor %}
+    </ul>
+</body>
+</html>
