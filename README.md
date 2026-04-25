@@ -12,6 +12,8 @@
 
 项目目标不是构建大而全的 SaaS 平台，而是围绕 **论文检索 + Agent 编排 + Web 产品化展示** 构建一个结构清晰、可运行、可解释、适合简历和面试讲解的 AI 应用工程样例。
 
+
+
 ---
 
 ## 1. Project Overview
@@ -147,15 +149,6 @@ Django 当前作为产品壳层，负责：
 
 ## 4. System Architecture
 
-项目采用分层结构，将 AI 推理能力和 Web 产品壳层分开：
-
-- **Django Product Shell**：负责页面、上传入口、历史会话和展示层
-- **FastAPI AI Service**：负责对外提供 AI 推理接口
-- **LangGraph Workflow**：负责编排 Agent 工具调用流程
-- **Tools Layer**：统一封装 RAG、LLM、计算器、时间查询和 Web Search
-- **RAGSystem**：负责论文检索、rerank 和基于上下文的回答生成
-- **SQLite**：保存聊天会话和消息记录
-
 ```mermaid
 flowchart TD
     U[User] --> D[Django Product Shell]
@@ -174,34 +167,127 @@ flowchart TD
     G --> N1[choose_tool]
     N1 --> N2[execute_tool]
     N2 --> N3[generate_answer]
+    N3 --> RESP[Answer + Retrieved Chunks + Agent Trace]
+    RESP --> D
 
-    N2 --> T1[RAG Tool]
-    N2 --> T2[Calculator Tool]
-    N2 --> T3[Time Tool]
-    N2 --> T4[Web Search Tool]
-    N2 --> T5[LLM Tool]
+    N2 --> TL[Tools Layer]
+    TL --> T1[RAG Tool]
+    TL --> T2[Calculator Tool]
+    TL --> T3[Time Tool]
+    TL --> T4[Web Search Tool]
+    TL --> T5[LLM Tool]
 
     T1 --> RS[RAGSystem]
-    RS --> E[Embedding]
     RS --> F[FAISS Vector Index]
     RS --> RR[Rerank]
     RS --> A[Answer Generation]
 
     T4 --> MCP[MCP Web Search]
 
-    API --> RESP[Answer + Retrieved Chunks + Agent Trace]
-    RESP --> D
-
     D --> DB[(SQLite)]
     DB --> S1[ChatSession]
     DB --> S2[ChatMessage]
 ```
 
+项目采用分层结构，将 AI 推理能力和 Web 产品壳层分开：
+
+- **Django Product Shell**：负责页面、上传入口、历史会话和展示层
+- **FastAPI AI Service**：负责对外提供 AI 推理接口
+- **LangGraph Workflow**：负责编排 Agent 工具调用流程
+- **Tools Layer**：统一封装 RAG、LLM、计算器、时间查询和 Web Search
+- **RAGSystem**：负责论文检索、rerank 和基于上下文的回答生成
+- **SQLite**：保存聊天会话和消息记录
+
 ---
 
-## 5. Core Workflow
+## 5.Request Sequence
 
-### 5.1 论文上传与知识库更新流程
+### 5.1 Ask Question Sequence
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant Django as Django Product Shell
+    participant FastAPI as FastAPI AI Service
+    participant Workflow as AgentWorkflow
+    participant Graph as LangGraph StateGraph
+    participant Tools as Tools Layer
+    participant RAG as RAGSystem
+    participant DB as SQLite
+
+    User->>Django: Submit question
+    Django->>FastAPI: POST /ask<br/>session_id + question
+
+    FastAPI->>FastAPI: Load short-term chat history
+    FastAPI->>Workflow: invoke(session_id, query, chat_history)
+    Workflow->>Graph: graph.invoke(state)
+
+    Graph->>Graph: choose_tool
+    Graph->>Graph: execute_tool
+
+    alt Tool is rag
+        Graph->>Tools: call rag_tool
+        Tools->>RAG: ask_with_trace(query, chat_history)
+        RAG->>RAG: Retrieve related chunks
+        RAG->>RAG: Rerank chunks
+        RAG->>RAG: Generate answer with context
+        RAG-->>Tools: answer + retrieved_chunks
+    else Tool is calculator / time / web_search / llm
+        Graph->>Tools: call selected tool
+        Tools-->>Graph: tool output
+    end
+
+    Graph->>Graph: generate_answer
+    Graph-->>Workflow: final state
+    Workflow-->>FastAPI: result state
+
+    FastAPI-->>Django: answer + chunks + agent_trace
+
+    Django->>DB: Save ChatSession
+    Django->>DB: Save user message
+    Django->>DB: Save assistant message
+
+    Django-->>User: Render answer, Agent Trace, Retrieved Context
+```
+
+### 5.2 Upload and Reload Knowledge Base Sequence
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant Django as Django Upload Page
+    participant Data as data Directory
+    participant FastAPI as FastAPI AI Service
+    participant Loader as Data Loader
+    participant RAG as RAGSystem
+    participant Workflow as AgentWorkflow
+
+    User->>Django: Upload PDF
+    Django->>Data: Save PDF to data/
+
+    Django->>FastAPI: POST /reload_kb
+
+    FastAPI->>Loader: load_pdfs(DATA_DIR)
+    Loader-->>FastAPI: documents
+
+    FastAPI->>Loader: process_documents(documents)
+    Loader-->>FastAPI: chunks
+
+    FastAPI->>RAG: Create new RAGSystem(chunks)
+    RAG->>RAG: Build embeddings
+    RAG->>RAG: Build FAISS index
+
+    FastAPI->>Workflow: Rebuild AgentWorkflow(TOOLS, rag)
+
+    FastAPI-->>Django: reload status + total_docs + total_chunks
+    Django-->>User: Show upload result and current knowledge base files
+```
+
+---
+
+## 6. Core Workflow
+
+### 6.1 论文上传与知识库更新流程
 
 ```text
 User Upload PDF
@@ -234,7 +320,7 @@ Rebuild AgentWorkflow
 5. 系统重新进行文本切分、向量化和 FAISS 索引构建
 6. FastAPI 同步重建 AgentWorkflow，使后续问答使用新的知识库
 
-### 5.2 问答与 Agent 编排流程
+### 6.2 问答与 Agent 编排流程
 
 ```text
 User Question
@@ -269,7 +355,7 @@ Save ChatSession / ChatMessage
 7. FastAPI 返回 `answer`、`retrieved_chunks` 和 `agent_trace`
 8. Django 保存会话消息，并在页面展示回答、检索片段和 Agent 执行路径
 
-### 5.3 RAG 内部流程
+### 6.3 RAG 内部流程
 
 ```text
 Question
@@ -289,58 +375,50 @@ Answer + Retrieved Chunks
 
 ---
 
-## 6. Demo Pages
+## 7. Demo Pages
 
-当前 Django 产品壳层包含以下页面。
+当前项目已经通过 Django 提供一个最小产品壳层，用于展示论文上传、问答交互、Agent Trace、RAG 检索片段和历史会话管理。
 
-### 6.1 Chat Page
+### 7.1 Upload Papers
 
-聊天页面支持：
+Django 上传页面支持查看当前知识库文件，并上传新的 PDF。上传后，Django 会将文件保存到本地 `data/` 目录，并调用 FastAPI 的 `/reload_kb` 接口，触发知识库重建和 AgentWorkflow 更新。
 
-- 输入 session_id 和问题
-- 展示多轮对话消息
-- 展示 Recent Sessions
-- 展示 Agent Trace
-- 展示 Retrieved Context
+![Upload Papers](docs/images/upload_page.png)
 
-建议截图位置：
+### 7.2 Chat Page and Agent Trace
 
-```text
-docs/images/chat_page.png
-```
+聊天页面支持用户输入 `session_id` 和问题，并展示多轮对话消息、最近会话、本轮 Agent 的工具选择和 LangGraph 执行路径。
 
-### 6.2 Upload Page
+Agent Trace 中可以看到：
 
-上传页面支持：
+- 本轮使用的工具
+- 工具输入
+- LangGraph 工作流路径
+- 路由决策原始信息
 
-- 查看当前知识库 PDF 文件
-- 上传新论文 PDF
-- 上传后触发 FastAPI `/reload_kb`
-- 重建本地知识库和 AgentWorkflow
+![Chat Agent Trace](docs/images/chat_agent_trace.png)
 
-建议截图位置：
+### 7.3 Conversation Answer
 
-```text
-docs/images/upload_page.png
-```
+系统会在页面中展示用户问题和 AI Assistant 的回答结果。Django 同时会将 user / assistant 消息保存到 SQLite 数据库中，方便后续回溯历史会话。
 
-### 6.3 Session History Page
+![Chat Answer](docs/images/chat_answer.png)
 
-历史会话页面支持：
+### 7.4 Retrieved Context
 
-- 查看全部历史 session
-- 进入单个 session 详情页
-- 回溯历史问答内容
+对于论文相关问题，系统会展示 RAG 检索阶段命中的 Top-K 论文片段，用于说明回答依据，避免系统表现成完全黑盒的聊天机器人。
 
-建议截图位置：
+![Retrieved Context](docs/images/retrieved_context.png)
 
-```text
-docs/images/session_history.png
-```
+### 7.5 Session History
+
+Django 会将历史会话和消息保存到 SQLite 数据库中，并提供历史会话页面用于回溯不同 session 下的问答记录。
+
+![Session History](docs/images/session_history.png)
 
 ---
 
-## 7. Tech Stack
+## 8. Tech Stack
 
 当前项目使用的主要技术如下：
 
@@ -386,7 +464,7 @@ docs/images/session_history.png
 
 ---
 
-## 8. Project Structure
+## 9. Project Structure
 
 ```text
 Paper-RAG-Agent-with-LangGraph/
@@ -445,9 +523,9 @@ Paper-RAG-Agent-with-LangGraph/
 
 ---
 
-## 9. API Endpoints
+## 10. API Endpoints
 
-### 9.1 POST `/ask`
+### 10.1 POST `/ask`
 
 用于执行一次 Agent 问答流程。
 
@@ -489,7 +567,7 @@ Paper-RAG-Agent-with-LangGraph/
 }
 ```
 
-### 9.2 POST `/reload_kb`
+### 10.2 POST `/reload_kb`
 
 用于重新加载 `data/` 目录下的论文文件，并重建知识库和 AgentWorkflow。
 
@@ -504,7 +582,7 @@ Paper-RAG-Agent-with-LangGraph/
 }
 ```
 
-### 9.3 POST `/clear/{session_id}`
+### 10.3 POST `/clear/{session_id}`
 
 用于清空 FastAPI 侧指定 session 的短期对话历史。
 
@@ -519,16 +597,16 @@ Paper-RAG-Agent-with-LangGraph/
 
 ---
 
-## 10. Quick Start
+## 11. Quick Start
 
-### 10.1 Clone the Repository
+### 11.1 Clone the Repository
 
 ```bash
 git clone https://github.com/1186141415/Paper-RAG-Agent-with-LangGraph.git
 cd Paper-RAG-Agent-with-LangGraph
 ```
 
-### 10.2 Create Virtual Environment
+### 11.2 Create Virtual Environment
 
 Windows:
 
@@ -544,13 +622,13 @@ python3.11 -m venv .venv
 source .venv/bin/activate
 ```
 
-### 10.3 Install Dependencies
+### 11.3 Install Dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 10.4 Configure Environment Variables
+### 11.4 Configure Environment Variables
 
 在项目根目录创建 `.env` 文件：
 
@@ -573,7 +651,7 @@ MCP_SEARCH_CONTENT_SIZE=medium
 MCP_SEARCH_LOCATION=us
 ```
 
-### 10.5 Prepare Papers
+### 11.5 Prepare Papers
 
 将论文 PDF 放入 `data/` 目录：
 
@@ -584,7 +662,7 @@ data/
 └─ Paper3.pdf
 ```
 
-### 10.6 Start FastAPI AI Service
+### 11.6 Start FastAPI AI Service
 
 在项目根目录运行：
 
@@ -598,7 +676,7 @@ FastAPI 文档地址：
 http://127.0.0.1:8000/docs
 ```
 
-### 10.7 Start Django Product Shell
+### 11.7 Start Django Product Shell
 
 另开一个终端：
 
@@ -623,11 +701,11 @@ Session History: http://127.0.0.1:8001/sessions/
 
 ---
 
-## 11. Startup Self-Check
+## 12. Startup Self-Check
 
 启动服务后，可以按下面顺序做最小自检。
 
-### 11.1 打开 FastAPI 接口文档
+### 12.1 打开 FastAPI 接口文档
 
 访问：
 
@@ -637,7 +715,7 @@ http://127.0.0.1:8000/docs
 
 如果能正常打开，说明 FastAPI 服务已成功启动。
 
-### 11.2 打开 Django 页面
+### 12.2 打开 Django 页面
 
 访问：
 
@@ -647,7 +725,7 @@ http://127.0.0.1:8001/
 
 如果能正常打开聊天页面，说明 Django 产品壳层已成功启动。
 
-### 11.3 测试 RAG 问答
+### 12.3 测试 RAG 问答
 
 在 Django Chat 页面输入：
 
@@ -662,7 +740,7 @@ What is the difference between paper1 and paper2?
 - Retrieved Context 中展示命中的论文片段
 - Conversation 中保存本轮问答
 
-### 11.4 测试上传与知识库重建
+### 12.4 测试上传与知识库重建
 
 访问：
 
@@ -677,7 +755,7 @@ http://127.0.0.1:8001/documents/upload/
 - `/reload_kb` 重新加载 PDF、重新切分、重新构建索引
 - AgentWorkflow 同步更新
 
-### 11.5 测试计算工具
+### 12.5 测试计算工具
 
 向 `/ask` 发送：
 
@@ -694,7 +772,7 @@ http://127.0.0.1:8001/documents/upload/
 5535
 ```
 
-### 11.6 测试普通 LLM 路由
+### 12.6 测试普通 LLM 路由
 
 向 `/ask` 发送：
 
@@ -711,7 +789,7 @@ http://127.0.0.1:8001/documents/upload/
 - `input` 保持原问题
 - 返回通用回答
 
-### 11.7 测试 MCP 外部搜索工具
+### 12.7 测试 MCP 外部搜索工具
 
 向 `/ask` 发送：
 
@@ -730,7 +808,7 @@ http://127.0.0.1:8001/documents/upload/
 
 ---
 
-## 12. Example Use Cases
+## 13. Example Use Cases
 
 典型问题示例：
 
@@ -774,11 +852,11 @@ Calculate 2 * (3 + 5)
 
 ---
 
-## 13. Engineering Highlights
+## 14. Engineering Highlights
 
 这个项目当前想体现的，不是“会调用一个大模型 API”，而是一个 AI 应用从后端能力到产品展示的工程闭环。
 
-### 13.1 分层清晰
+### 14.1 分层清晰
 
 项目将不同职责拆分到不同层：
 
@@ -789,7 +867,7 @@ Calculate 2 * (3 + 5)
 - RAGSystem：检索、rerank 和回答生成
 - SQLite：会话和消息存储
 
-### 13.2 Agent 流程可解释
+### 14.2 Agent 流程可解释
 
 系统不只返回最终回答，还能返回并展示：
 
@@ -800,13 +878,13 @@ Calculate 2 * (3 + 5)
 
 这使得系统更适合调试、展示和面试讲解。
 
-### 13.3 上传后动态更新知识库
+### 14.3 上传后动态更新知识库
 
 Django 上传论文后，会调用 FastAPI `/reload_kb`，重新加载本地 PDF、切分文档、构建向量索引，并同步重建 AgentWorkflow。
 
 这使系统具备了更接近真实产品的知识库更新能力。
 
-### 13.4 保留核心 AI 能力的独立性
+### 14.4 保留核心 AI 能力的独立性
 
 Django 只负责产品壳层，不侵入 RAG / Agent / LangGraph 核心逻辑。
 
@@ -814,7 +892,7 @@ Django 只负责产品壳层，不侵入 RAG / Agent / LangGraph 核心逻辑。
 
 ---
 
-## 14. Future Work
+## 15. Future Work
 
 后续优化方向主要围绕工程可用性和展示完整度展开，而不是扩展成复杂 SaaS 平台：
 
@@ -829,7 +907,7 @@ Django 只负责产品壳层，不侵入 RAG / Agent / LangGraph 核心逻辑。
 
 ---
 
-## 15. Notes
+## 16. Notes
 
 - 当前版本强调的是工程化闭环，而不是一次性做完所有能力
 - README 内容以当前真实实现为准，后续随着功能扩展持续更新
@@ -838,6 +916,6 @@ Django 只负责产品壳层，不侵入 RAG / Agent / LangGraph 核心逻辑。
 
 ---
 
-## 16. License
+## 17. License
 
 This project is for learning, experimentation, and engineering practice.
