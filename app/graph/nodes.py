@@ -6,6 +6,7 @@ from app.llm_utils import client
 from app.config import CHAT_MODEL
 from app.logger_config import setup_logger
 
+
 logger = setup_logger()
 
 
@@ -113,6 +114,8 @@ def build_choose_tool_node(tools: list[dict[str, Any]]):
 
     def choose_tool_node(state: AgentState) -> AgentState:
         query = state["query"]
+        workflow_path = state.get("workflow_path", []) + ["choose_tool"]
+
         logger.info(f"[choose_tool_node] query: {query}")
 
         tool_desc = "\n".join([
@@ -172,7 +175,8 @@ def build_choose_tool_node(tools: list[dict[str, Any]]):
             logger.info(f"[choose_tool_node] normalized decision: {decision}")
 
             return {
-                "decision": decision
+                "decision": decision,
+                "workflow_path": workflow_path,
             }
 
         except Exception as e:
@@ -183,7 +187,8 @@ def build_choose_tool_node(tools: list[dict[str, Any]]):
                     "input": query,
                     "reason": "Router failed, so the system falls back to the general LLM tool."
                 },
-                "error": f"choose_tool_node failed: {str(e)}"
+                "error": f"choose_tool_node failed: {str(e)}",
+                "workflow_path": workflow_path
             }
 
     return choose_tool_node
@@ -191,6 +196,8 @@ def build_choose_tool_node(tools: list[dict[str, Any]]):
 
 def build_execute_tool_node(tools: list[dict[str, Any]], rag=None):
     def execute_tool_node(state: AgentState) -> AgentState:
+        workflow_path = state.get("workflow_path", []) + ["execute_tool"]
+
         try:
             decision = state["decision"]
             chat_history = state.get("chat_history", [])
@@ -199,6 +206,10 @@ def build_execute_tool_node(tools: list[dict[str, Any]], rag=None):
             tool_input = decision["input"]
 
             logger.info(f"[execute_tool_node] tool_name: {tool_name}, tool_input: {tool_input}")
+
+            # 测试代码
+            #if "force_tool_error" in tool_input:
+            #    raise RuntimeError("Forced tool error for fallback test")
 
             for t in tools:
                 if t["name"] == tool_name:
@@ -216,7 +227,8 @@ def build_execute_tool_node(tools: list[dict[str, Any]], rag=None):
                             "tool_name": tool_name,
                             "tool_input": tool_input,
                             "tool_output": result
-                        }
+                        },
+                        "workflow_path": workflow_path
                     }
 
             logger.warning(f"[execute_tool_node] tool not found: {tool_name}")
@@ -227,7 +239,8 @@ def build_execute_tool_node(tools: list[dict[str, Any]], rag=None):
                     "tool_input": tool_input,
                     "tool_output": "No valid tool found."
                 },
-                "error": f"Tool not found: {tool_name}"
+                "error": f"Tool not found: {tool_name}",
+                "workflow_path": workflow_path
             }
 
         except Exception as e:
@@ -238,17 +251,94 @@ def build_execute_tool_node(tools: list[dict[str, Any]], rag=None):
                     "tool_input": "",
                     "tool_output": "Tool execution failed."
                 },
-                "error": f"execute_tool_node failed: {str(e)}"
+                "error": f"execute_tool_node failed: {str(e)}",
+                "workflow_path": workflow_path
             }
 
     return execute_tool_node
 
 
+def route_after_execute(state: AgentState) -> str:
+    if state.get("error") and not state.get("fallback_used"):
+        logger.warning("[route_after_execute] error found, route to llm_fallback")
+        return "llm_fallback"
+
+    logger.info("[route_after_execute] no error, route to generate_answer")
+    return "generate_answer"
+
+def llm_fallback_node(state: AgentState) -> AgentState:
+    workflow_path = state.get("workflow_path", []) + ["llm_fallback"]
+
+    query = state.get("query", "")
+    chat_history = state.get("chat_history", [])
+    previous_error = state.get("error", "")
+    retry_count = state.get("retry_count", 0) + 1
+
+    logger.warning(f"[llm_fallback_node] fallback triggered. previous_error: {previous_error}")
+
+    try:
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are a helpful assistant. "
+                    "The previous tool execution failed, so you should answer the user directly. "
+                    "If the question requires document evidence or external data that is unavailable, "
+                    "clearly state the limitation instead of making unsupported claims."
+                )
+            }
+        ]
+
+        if chat_history:
+            messages.extend(chat_history)
+
+        messages.append({
+            "role": "user",
+            "content": query
+        })
+
+        response = client.chat.completions.create(
+            model=CHAT_MODEL,
+            messages=messages
+        )
+
+        answer = response.choices[0].message.content
+
+        return {
+            "tool_result": {
+                "tool_name": "llm_fallback",
+                "tool_input": query,
+                "tool_output": answer
+            },
+            "fallback_used": True,
+            "retry_count": retry_count,
+            "error": "",
+            "workflow_path": workflow_path
+        }
+
+    except Exception as e:
+        logger.exception("llm_fallback_node failed")
+        return {
+            "tool_result": {
+                "tool_name": "llm_fallback_error",
+                "tool_input": query,
+                "tool_output": "LLM fallback failed."
+            },
+            "fallback_used": True,
+            "retry_count": retry_count,
+            "error": f"llm_fallback_node failed: {str(e)}",
+            "workflow_path": workflow_path
+        }
+
 def generate_answer_node(state: AgentState) -> AgentState:
+    workflow_path = state.get("workflow_path", []) + ["generate_answer"]
+
     if state.get("error"):
         logger.warning(f"[generate_answer_node] error found in state: {state['error']}")
         return {
-            "final_answer": f"系统执行过程中出现问题：{state['error']}"
+            "final_answer": f"系统执行过程中出现问题：{state['error']}",
+            "retrieved_chunks": state.get("retrieved_chunks", []),
+            "workflow_path": workflow_path
         }
 
     tool_result = state["tool_result"]
@@ -259,14 +349,12 @@ def generate_answer_node(state: AgentState) -> AgentState:
     if isinstance(output, dict):
         return {
             "final_answer": output.get("answer", ""),
-            "retrieved_chunks": output.get("retrieved_chunks", [])
+            "retrieved_chunks": output.get("retrieved_chunks", []),
+            "workflow_path": workflow_path
         }
 
     return {
         "final_answer": str(output),
-        "retrieved_chunks": []
+        "retrieved_chunks": [],
+        "workflow_path": workflow_path
     }
-
-    # return {
-    #     "final_answer": str(tool_result["tool_output"])
-    # }

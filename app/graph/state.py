@@ -36,5 +36,15 @@ class AgentState(TypedDict, total=False):
 
     retrieved_chunks: list[dict[str, Any]]
 
+    # 是否使用过 LLM fallback
+    fallback_used: bool
+
+    # fallback / retry 次数
+    retry_count: int
+
+    # 实际执行过的工作流节点路径
+    # 例如: ["choose_tool", "execute_tool", "llm_fallback", "generate_answer"]
+    workflow_path: list[str]
+
     # 预留错误字段，后面做异常兜底会用到
     error: str

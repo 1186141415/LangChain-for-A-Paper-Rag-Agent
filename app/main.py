@@ -66,11 +66,13 @@ def ask_question(req: QueryRequest):
             "route_decision": decision,
             "tool_used": tool_result.get("tool_name", ""),
             "tool_input": tool_result.get("tool_input", ""),
-            "workflow": [
-                "choose_tool",
-                "execute_tool",
-                "generate_answer"
-            ]
+            "fallback_used": result.get("fallback_used", False),
+            "error": result.get("error", ""),
+            "retry_count": result.get("retry_count", 0),
+            "workflow": result.get(
+                "workflow_path",
+                ["choose_tool", "execute_tool", "generate_answer"]
+            )
         }
 
         session_manager.append_turn(
