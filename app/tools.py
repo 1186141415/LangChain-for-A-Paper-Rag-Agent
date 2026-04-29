@@ -9,6 +9,7 @@ from app.config import (
     CHAT_MODEL
 )
 
+
 #
 # def rag_tool(query, rag: RAGSystem, chat_history=None):
 #     return rag.ask(query, chat_history=chat_history)
@@ -18,10 +19,70 @@ def rag_tool(query, rag: RAGSystem, chat_history=None):
 
 
 def calculator_tool(expression):
+    """
+    Safe calculator tool for basic arithmetic.
+
+    Supported:
+    - numbers
+    - +, -, *, /
+    - parentheses
+    - decimal points
+    - spaces
+
+    This intentionally avoids raw eval on unrestricted user input.
+    """
+    import ast
+    import operator as op
+
+    allowed_operators = {
+        ast.Add: op.add,
+        ast.Sub: op.sub,
+        ast.Mult: op.mul,
+        ast.Div: op.truediv,
+        ast.USub: op.neg,
+        ast.UAdd: op.pos,
+    }
+
+    def eval_node(node):
+        if isinstance(node, ast.Expression):
+            return eval_node(node.body)
+
+        if isinstance(node, ast.Constant):
+            if isinstance(node.value, (int, float)):
+                return node.value
+            raise ValueError("Only numbers are allowed.")
+
+        if isinstance(node, ast.BinOp):
+            operator_type = type(node.op)
+            if operator_type not in allowed_operators:
+                raise ValueError("Unsupported operator.")
+            left = eval_node(node.left)
+            right = eval_node(node.right)
+            return allowed_operators[operator_type](left, right)
+
+        if isinstance(node, ast.UnaryOp):
+            operator_type = type(node.op)
+            if operator_type not in allowed_operators:
+                raise ValueError("Unsupported unary operator.")
+            operand = eval_node(node.operand)
+            return allowed_operators[operator_type](operand)
+
+        raise ValueError("Invalid expression.")
+
     try:
-        return str(eval(expression))
-    except:
-        return "Invalid expression"
+        tree = ast.parse(str(expression), mode="eval")
+        result = eval_node(tree)
+
+        if isinstance(result, float) and result.is_integer():
+            result = int(result)
+
+        return str(result)
+
+    except ZeroDivisionError:
+        return "Invalid expression: division by zero."
+
+    except Exception:
+        return "Invalid expression. Only basic arithmetic is supported."
 
 
 def time_tool(_):
