@@ -130,6 +130,27 @@ class RAGSystem:
         sorted_indices = self.rerank(question, texts)
         best_chunks = [retrieved[i] for i in sorted_indices[:self.rerank_k]]
 
+        retrieved_chunks = []
+        for c in best_chunks:
+            retrieved_chunks.append({
+                "source": c["source"],
+                "text": c["text"],
+            })
+
+        # 最小版 context sufficiency 规则：
+        # 当前先用 retrieved_chunks 数量判断，后续可以升级为相似度阈值 / rerank 分数 / Reflection 判断
+        context_sufficient = len(retrieved_chunks) >= 2
+
+        if not context_sufficient:
+            return {
+                "answer": (
+                    "当前知识库检索到的证据不足，不能基于现有论文片段做出可靠回答。"
+                    "建议补充更多相关论文，或换一种更具体的问题重新提问。"
+                ),
+                "retrieved_chunks": retrieved_chunks,
+                "context_sufficient": False
+            }
+
         # 拼 context（加来源）
         context = ""
         for c in best_chunks:
@@ -138,7 +159,11 @@ class RAGSystem:
         messages = [
             {
                 "role": "system",
-                "content": "You are a helpful assistant. Answer based on context and conversation history."
+                "content": (
+                    "You are a helpful assistant. "
+                    "Answer based on context and conversation history. "
+                    "If the context is not enough, clearly say the evidence is insufficient."
+                )
             }
         ]
 
@@ -157,16 +182,10 @@ class RAGSystem:
 
         answer = response.choices[0].message.content
 
-        retrieved_chunks = []
-        for c in best_chunks:
-            retrieved_chunks.append({
-                "source": c["source"],
-                "text": c["text"],
-            })
-
         return {
             "answer": answer,
-            "retrieved_chunks": retrieved_chunks
+            "retrieved_chunks": retrieved_chunks,
+            "context_sufficient": context_sufficient
         }
 
     def ask_with_agent(self, question):

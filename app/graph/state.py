@@ -36,6 +36,9 @@ class AgentState(TypedDict, total=False):
 
     retrieved_chunks: list[dict[str, Any]]
 
+    # RAG 检索到的上下文是否足够支撑回答
+    context_sufficient: bool
+
     # 是否使用过 LLM fallback
     fallback_used: bool
 

@@ -338,6 +338,7 @@ def generate_answer_node(state: AgentState) -> AgentState:
         return {
             "final_answer": f"系统执行过程中出现问题：{state['error']}",
             "retrieved_chunks": state.get("retrieved_chunks", []),
+            "context_sufficient": state.get("context_sufficient"),
             "workflow_path": workflow_path
         }
 
@@ -350,11 +351,13 @@ def generate_answer_node(state: AgentState) -> AgentState:
         return {
             "final_answer": output.get("answer", ""),
             "retrieved_chunks": output.get("retrieved_chunks", []),
+            "context_sufficient": output.get("context_sufficient"),
             "workflow_path": workflow_path
         }
 
     return {
         "final_answer": str(output),
         "retrieved_chunks": [],
+        "context_sufficient": state.get("context_sufficient"),
         "workflow_path": workflow_path
     }
